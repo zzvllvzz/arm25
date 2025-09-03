@@ -1,41 +1,76 @@
-# Prerequisites
-*.d
-
-# Compiled Object files
-*.slo
-*.lo
+# ================================
+# Core C/C++ Compiler Outputs
+# ================================
 *.o
 *.obj
+*.a
+*.so
+*.so.*
+*.dylib
+*.lib
+*.dll
 
 # Precompiled Headers
 *.gch
 *.pch
 
-# Linker files
-*.ilk
-
-# Debugger Files
-*.pdb
-
-# Compiled Dynamic libraries
-*.so
-*.dylib
-*.dll
-
-# Fortran module files
-*.mod
-*.smod
-
-# Compiled Static libraries
-*.lai
-*.la
-*.a
-*.lib
-
-# Executables
+# Executables / Firmware
 *.exe
 *.out
 *.app
+*.elf
+*.bin
+*.hex
+*.axf
+*.map
+*.lst
 
-# debug information files
-*.dwo
+# GCC/Clang generated files
+*.d
+*.su
+
+# ================================
+# CLion & CMake
+# ================================
+.idea/
+!.idea/codeStyles/
+!.idea/codeStyles/*
+!.idea/inspectionProfiles/
+!.idea/inspectionProfiles/*
+
+cmake-build-*/
+CMakeCache.txt
+CMakeFiles/
+CMakeScripts/
+Testing/
+Makefile
+cmake_install.cmake
+install_manifest.txt
+compile_commands.json
+*.cmake
+*.cbp
+Debug/
+Release/
+
+# ================================
+# Embedded Vendor Code
+# ================================
+Drivers/**/*.o
+Middlewares/**/*.o
+
+# Dependency directories
+deps/
+vendor/
+lib/
+
+# ================================
+# System & Editor
+# ================================
+.DS_Store
+Thumbs.db
+*.swp
+*.swo
+*.log
+*.bak
+.vscode/
+
