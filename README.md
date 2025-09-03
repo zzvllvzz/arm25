@@ -26,4 +26,5 @@ cd arm25
 
 4. When you have entered the values click OK.
 5. Your project is now configured and target “ex1” should be selected by default
-6. Follow Pico debugger installation guide
+6. Follow Pico debugger installation guide that can be found in the repository by the name "pico_debugger_installation.pdf". Note that instead of "blink" in the "Target" and "Executable binary" you should see "ex1".
+
