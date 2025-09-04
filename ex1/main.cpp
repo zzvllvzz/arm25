@@ -1,6 +1,5 @@
 #include <iostream>
 #include "pico/stdlib.h"
-#include <vector>
 #include <queue>
 
 // Pins configuration
