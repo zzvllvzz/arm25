@@ -1,7 +1,7 @@
 # ARM25 Course Repository
 This repository contains the exercises for the ARM25 Embedded Systems course. It is structured to keep each exercise separate and self-contained.
 ## Repository Structure
-<img width="311" height="127" alt="image" src="https://github.com/user-attachments/assets/7e64f7d1-7c6c-4141-9bc9-a23840b1828c" />
+<img width="430" height="170" alt="image" src="https://github.com/user-attachments/assets/ac0c1194-bebf-4d08-95be-315d219e69d9" />
 
 ## Step-by-Step: First-Time Setup
 Follow these steps exactly to get started.
