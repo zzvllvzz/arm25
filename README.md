@@ -1,5 +1,5 @@
 # ARM25 Course Repository
-This repository contains the exercises and final project for the ARM25 Embedded Systems course. It is structured to keep each exercise and the project separate and self-contained.
+This repository contains the exercises for the ARM25 Embedded Systems course. It is structured to keep each exercise separate and self-contained.
 ## Repository Structure
 <img width="311" height="127" alt="image" src="https://github.com/user-attachments/assets/7e64f7d1-7c6c-4141-9bc9-a23840b1828c" />
 
