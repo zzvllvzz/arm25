@@ -43,8 +43,8 @@ git pull origin main
    * Create your ``ex3/main.cpp`` file.
    * Edit the top-level ``CMakeLists.txt`` file and add the line ``add_subdirectory(ex3)``.
    * Commit your changes and push them:
-     ```
-     git add .
-     git commit -m "Adds structure for exercise 3"
-     git push
-     ```
+```
+git add .
+git commit -m "Adds structure for exercise 3"
+git push
+```
