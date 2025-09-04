@@ -44,7 +44,7 @@ git pull origin main
    * Edit the top-level ``CMakeLists.txt`` file and add the line ``add_subdirectory(ex3)``.
    * Commit your changes and push them:
      ```
-     git add ex3/ CMakeLists.txt
+     git add .
      git commit -m "Adds structure for exercise 3"
      git push
      ```
