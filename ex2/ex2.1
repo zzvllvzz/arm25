@@ -1,0 +1,115 @@
+#include "iostream"
+#include "pico/stdlib.h"
+#include "FreeRTOS.h"
+#include "task.h"
+#include "semphr.h"
+#include "queue.h"
+
+// LED pin configuration
+const uint LED_PIN = 22;
+
+// Semaphore handle
+SemaphoreHandle_t xActivitySemaphore;
+
+// Task prototypes
+void serialReaderTask(void* params);
+void ledBlinkerTask(void* params);
+
+// Required for FreeRTOS on RP2040
+extern "C" {
+    uint32_t read_runtime_ctr(void) {
+        return (uint32_t)time_us_64();
+    }
+}
+
+// Serial reader task
+void serialReaderTask(void* params) {
+    while (true) {
+        // Read character from serial port with timeout
+        int c = getchar_timeout_us(1000); // 1ms timeout
+
+        if (c != PICO_ERROR_TIMEOUT) {
+            // Echo character back
+            putchar(c);
+
+            // Give semaphore to indicate activity
+            xSemaphoreGive(xActivitySemaphore);
+        }
+
+        // Small delay to prevent task from hogging CPU
+        vTaskDelay(pdMS_TO_TICKS(1));
+    }
+}
+
+// LED blinker task
+void ledBlinkerTask(void* params) {
+    while (true) {
+        // Wait for activity indication (semaphore)
+        if (xSemaphoreTake(xActivitySemaphore, portMAX_DELAY) == pdTRUE) {
+            // Blink the LED once (100ms on, 100ms off)
+            gpio_put(LED_PIN, 1);
+            vTaskDelay(pdMS_TO_TICKS(100));
+            gpio_put(LED_PIN, 0);
+            vTaskDelay(pdMS_TO_TICKS(100));
+        }
+    }
+}
+
+int main() {
+    // Initialize LED pin
+    gpio_init(LED_PIN);
+    gpio_set_dir(LED_PIN, GPIO_OUT);
+    gpio_put(LED_PIN, 0);
+
+    // Initialize serial
+    stdio_init_all();
+
+    // Wait for serial connection
+    sleep_ms(2000);
+    std::cout << "Serial Activity Indicator with FreeRTOS\n";
+    std::cout << "Type characters to see LED blink\n";
+
+    // Create binary semaphore
+    xActivitySemaphore = xSemaphoreCreateBinary();
+
+    if (xActivitySemaphore == NULL) {
+        std::cout << "Failed to create semaphore!\n";
+        while (true) {
+            // Error blink pattern
+            gpio_put(LED_PIN, 1);
+            sleep_ms(100);
+            gpio_put(LED_PIN, 0);
+            sleep_ms(900);
+        }
+    }
+
+    // Create serial reader task
+    xTaskCreate(serialReaderTask,
+               "SerialReader",
+               256,  // Stack size
+               NULL,
+               1,    // Priority
+               NULL);
+
+    // Create LED blinker task
+    xTaskCreate(ledBlinkerTask,
+               "LEDBlinker",
+               256,  // Stack size
+               NULL,
+               1,    // Priority
+               NULL);
+
+    // Start scheduler
+    vTaskStartScheduler();
+
+    // Should never reach here
+    while (true) {
+        // Emergency blink if scheduler fails
+        gpio_put(LED_PIN, 1);
+        sleep_ms(100);
+        gpio_put(LED_PIN, 0);
+        sleep_ms(100);
+    }
+
+    return 0;
+}
