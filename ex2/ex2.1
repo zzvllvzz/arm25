@@ -26,7 +26,7 @@ extern "C" {
 void serialReaderTask(void* params) {
     while (true) {
         // Read character from serial port with timeout
-        int c = getchar_timeout_us(1000); // 1ms timeout
+        int c = getchar_timeout_us(0); // 1ms timeout
 
         if (c != PICO_ERROR_TIMEOUT) {
             // Echo character back
@@ -34,8 +34,7 @@ void serialReaderTask(void* params) {
 
             // Give semaphore to indicate activity
             xSemaphoreGive(xActivitySemaphore);
-        }
-
+        } else
         // Small delay to prevent task from hogging CPU
         vTaskDelay(pdMS_TO_TICKS(1));
     }
