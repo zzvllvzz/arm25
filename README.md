@@ -27,24 +27,3 @@ cd arm25
 4. When you have entered the values click OK.
 5. Your project is now configured and target ``ex1`` should be selected by default
 6. Follow Pico debugger installation guide that can be found in the repository by the name ``pico_debugger_installation.pdf``. Note that instead of ``blink`` in the ``Target`` and ``Executable binary`` you should see ``ex1``.
-
-## How to Work on a New Exercise
-This is the workflow for when we add ``ex2``, ``ex3``, etc.
-
-1. **Get the Latest Code:** Always start by pulling the latest changes from the repository.
-```
-git pull origin main
-```
-2. **The New Exercise will Appear:** If a teammate has already added ``ex2``, it will now be on your computer. Reload the **CMake Project (Tools > CMake > Reset Cache and Reload Project)**, and the new ``ex2`` target will appear in the CMake window.
-3. **To Create a New Exercise Yourself:**
-   * Create a new folder in the root (e.g., ``ex3/``).
-   * Copy the ``CMakeLists.txt`` from ``ex1/`` into ``ex3/``.
-   * Change the ``project(ex1 C CXX ASM)`` line to ``project(ex3 C CXX ASM)``.
-   * Create your ``ex3/main.cpp`` file.
-   * Edit the top-level ``CMakeLists.txt`` file and add the line ``add_subdirectory(ex3)``.
-   * Commit your changes and push them:
-```
-git add .
-git commit -m "Adds structure for exercise 3"
-git push
-```
