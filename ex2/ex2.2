@@ -1,0 +1,212 @@
+#include "pico/stdlib.h"
+#include "FreeRTOS.h"
+#include "task.h"
+#include "queue.h"
+#include <iostream>
+#include <string>
+
+// GPIO pin definitions
+const uint ROT_A_PIN = 10;    // Rotary encoder A phase
+const uint ROT_B_PIN = 11;    // Rotary encoder B phase
+const uint ROT_SW_PIN = 12;   // Rotary encoder switch
+const uint LED_PIN = 22;       // LED output
+
+// Event types for queue
+typedef enum {
+    EVENT_BUTTON,
+    EVENT_ENCODER_CW,
+    EVENT_ENCODER_CCW
+} event_type_t;
+
+// Queue structure
+typedef struct {
+    event_type_t type;
+    uint32_t timestamp;
+} event_t;
+
+// Global variables
+QueueHandle_t xEventQueue;
+bool ledState = false;
+uint32_t blinkFrequency = 2;  // Default frequency in Hz
+uint32_t lastButtonPressTime = 0;
+const uint32_t DEBOUNCE_TIME_MS = 250;
+const uint32_t ENCODER_DEBOUNCE_MS = 10;
+
+// Required for FreeRTOS on RP2040
+extern "C" {
+    uint32_t read_runtime_ctr(void) {
+        return (uint32_t)time_us_64();
+    }
+}
+
+// GPIO interrupt callback for rotary encoder
+void gpio_callback(uint gpio, uint32_t events) {
+    static int last_encoded = 0;
+    static uint32_t lastEncoderTime = 0;
+
+    event_t event;
+    event.timestamp = to_ms_since_boot(get_absolute_time());
+
+    if (gpio == ROT_SW_PIN) {
+        // Button press event - check for falling edge (button pressed)
+        if ((events & GPIO_IRQ_EDGE_FALL) && (event.timestamp - lastButtonPressTime > DEBOUNCE_TIME_MS)) {
+            event.type = EVENT_BUTTON;
+            xQueueSendToBackFromISR(xEventQueue, &event, NULL);
+            lastButtonPressTime = event.timestamp;
+        }
+    } else if (gpio == ROT_A_PIN) {
+        // Encoder debouncing - ignore events too close together
+        if (event.timestamp - lastEncoderTime < ENCODER_DEBOUNCE_MS) {
+            return;
+        }
+        lastEncoderTime = event.timestamp;
+
+        // Read both encoder pins
+        int a_state = gpio_get(ROT_A_PIN);
+        int b_state = gpio_get(ROT_B_PIN);
+
+        // Simple decoding - check state of B when A changes
+        static int last_a_state = 0;
+
+        if (a_state != last_a_state) {
+            // A changed state, check B to determine direction
+            if (a_state == 1) {  // Rising edge of A
+                if (b_state == 0) {
+                    event.type = EVENT_ENCODER_CW;
+                    xQueueSendToBackFromISR(xEventQueue, &event, NULL);
+                } else {
+                    event.type = EVENT_ENCODER_CCW;
+                    xQueueSendToBackFromISR(xEventQueue, &event, NULL);
+                }
+            }
+            last_a_state = a_state;
+        }
+    }
+}
+
+// Task to process events from the queue
+void eventProcessorTask(void* params) {
+    event_t event;
+
+    while (true) {
+        if (xQueueReceive(xEventQueue, &event, portMAX_DELAY) == pdTRUE) {
+            switch (event.type) {
+                case EVENT_BUTTON:
+                    // Toggle LED state
+                    ledState = !ledState;
+                    std::cout << "LED " << (ledState ? "ON" : "OFF") << std::endl;
+                    break;
+
+                case EVENT_ENCODER_CW:
+                    // Increase frequency if LED is on
+                    if (ledState && blinkFrequency < 200) {
+                        blinkFrequency += 2;
+                        std::cout << "Frequency: " << blinkFrequency << " Hz" << std::endl;
+                    }
+                    break;
+
+                case EVENT_ENCODER_CCW:
+                    // Decrease frequency if LED is on
+                    if (ledState && blinkFrequency > 2) {
+                        blinkFrequency -= 2;
+                        std::cout << "Frequency: " << blinkFrequency << " Hz" << std::endl;
+                    }
+                    break;
+            }
+        }
+    }
+}
+
+// Task to blink the LED
+void ledBlinkerTask(void* params) {
+    TickType_t xLastWakeTime = xTaskGetTickCount();
+    bool ledOn = false;
+
+    while (true) {
+        if (ledState) {
+            // Calculate half-period in ms (500ms / frequency)
+            uint32_t halfPeriodMs = 500 / blinkFrequency;
+
+            // Ensure minimum half-period of 2ms (for 200Hz)
+            if (halfPeriodMs < 2) {
+                halfPeriodMs = 2;
+            }
+
+            // Convert to ticks
+            TickType_t xHalfPeriod = pdMS_TO_TICKS(halfPeriodMs);
+
+            // Toggle LED and delay
+            ledOn = !ledOn;
+            gpio_put(LED_PIN, ledOn);
+            vTaskDelayUntil(&xLastWakeTime, xHalfPeriod);
+        } else {
+            // LED is off, just delay a bit
+            gpio_put(LED_PIN, 0);
+            ledOn = false;
+            vTaskDelayUntil(&xLastWakeTime, pdMS_TO_TICKS(50));
+        }
+    }
+}
+
+int main() {
+    // Initialize GPIO
+    gpio_init(LED_PIN);
+    gpio_set_dir(LED_PIN, GPIO_OUT);
+    gpio_put(LED_PIN, 0);
+
+    // Initialize rotary encoder pins
+    gpio_init(ROT_A_PIN);
+    gpio_set_dir(ROT_A_PIN, GPIO_IN);
+    gpio_init(ROT_B_PIN);
+    gpio_set_dir(ROT_B_PIN, GPIO_IN);
+
+    // Initialize rotary encoder switch with pull-up
+    gpio_init(ROT_SW_PIN);
+    gpio_set_dir(ROT_SW_PIN, GPIO_IN);
+    gpio_pull_up(ROT_SW_PIN);
+
+    // Initialize serial
+    stdio_init_all();
+    sleep_ms(2000);
+    std::cout << "Rotary Encoder Control with FreeRTOS" << std::endl;
+    std::cout << "Initial frequency: " << blinkFrequency << " Hz" << std::endl;
+
+    // Create event queue
+    xEventQueue = xQueueCreate(10, sizeof(event_t));
+
+    if (xEventQueue == NULL) {
+        std::cout << "Failed to create queue!" << std::endl;
+        while (true) {
+            // Error blink pattern
+            gpio_put(LED_PIN, 1);
+            sleep_ms(100);
+            gpio_put(LED_PIN, 0);
+            sleep_ms(900);
+        }
+    }
+
+    // Register the queue (for debugging)
+    vQueueAddToRegistry(xEventQueue, "EventQueue");
+
+    // Set up GPIO interrupts
+    gpio_set_irq_enabled_with_callback(ROT_A_PIN, GPIO_IRQ_EDGE_RISE | GPIO_IRQ_EDGE_FALL, true, &gpio_callback);
+    gpio_set_irq_enabled(ROT_SW_PIN, GPIO_IRQ_EDGE_FALL, true);
+
+    // Create tasks
+    xTaskCreate(eventProcessorTask, "EventProcessor", 256, NULL, 2, NULL);
+    xTaskCreate(ledBlinkerTask, "LEDBlinker", 256, NULL, 1, NULL);
+
+    // Start scheduler
+    vTaskStartScheduler();
+
+    // Should never reach here
+    while (true) {
+        // Emergency blink if scheduler fails
+        gpio_put(LED_PIN, 1);
+        sleep_ms(100);
+        gpio_put(LED_PIN, 0);
+        sleep_ms(100);
+    }
+
+    return 0;
+}
