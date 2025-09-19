@@ -3,6 +3,9 @@ This repository contains the exercises for the ARM25 Embedded Systems course. It
 ## Repository Structure
 <img width="422" height="184" alt="image" src="https://github.com/user-attachments/assets/76859f3b-a5e1-44a5-b14b-be205e609003" />
 
+## Pico SDK 1.5.0
+Pico SDK (for Windows) can be found in the ``Releases`` of this repository.
+
 ## Step-by-Step: First-Time Setup
 Follow these steps exactly to get started.
 
