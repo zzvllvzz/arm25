@@ -1,0 +1,175 @@
+// main.cpp
+#include <cstdint>
+#include <cstring>
+#include "pico/stdlib.h"
+#include "hardware/gpio.h"
+#include "FreeRTOS.h"
+#include "task.h"
+#include "event_groups.h"
+
+extern "C" {
+    uint32_t read_runtime_ctr(void) {
+        return (uint32_t)time_us_64();
+    }
+}
+
+#include "debug_log.h"   // debug_init(), debug()
+
+// ----------------------------- Pins (edit to match your board) -----------------------------
+static constexpr uint BTN1_PIN = 9;   // Task 1 button (e.g., SW0)
+static constexpr uint BTN2_PIN = 8;   // Task 2 button (e.g., SW1)
+static constexpr uint BTN3_PIN = 7;   // Task 3 button (e.g., SW2)
+// Buttons are assumed ACTIVE-LOW (pin -> button -> GND) with internal pull-up enabled.
+
+// ----------------------------- Timing / priorities ----------------------------------------
+static constexpr TickType_t DEBOUNCE_TICK = pdMS_TO_TICKS(10);
+static constexpr TickType_t PRESS_STABLE  = pdMS_TO_TICKS(30);      // ~30 ms stable
+static constexpr TickType_t WD_DEADLINE   = pdMS_TO_TICKS(30000);   // 30 seconds
+
+// Debug task must be the lowest (idle+1). Others are higher:
+static constexpr UBaseType_t PRIO_DEBUG    = tskIDLE_PRIORITY + 1;  // (created inside debug_init)
+static constexpr UBaseType_t PRIO_BUTTON   = tskIDLE_PRIORITY + 3;
+static constexpr UBaseType_t PRIO_WATCHDOG = tskIDLE_PRIORITY + 4;
+
+// ----------------------------- Event group bits -------------------------------------------
+static constexpr EventBits_t BIT_T1 = (1u << 0);
+static constexpr EventBits_t BIT_T2 = (1u << 1);
+static constexpr EventBits_t BIT_T3 = (1u << 2);
+static constexpr EventBits_t ALL_BITS = (BIT_T1 | BIT_T2 | BIT_T3);
+
+static EventGroupHandle_t g_evt = nullptr;
+
+// ============================= Helpers: press+release with debounce ========================
+static bool read_pressed_active_low(uint pin) {
+    return gpio_get(pin) == 0;  // active-LOW
+}
+
+// Returns when the pin has held the requested state for PRESS_STABLE
+static void wait_until_stable(uint pin, bool want_pressed) {
+    bool last = read_pressed_active_low(pin);
+    TickType_t stable = 0;
+
+    for (;;) {
+        vTaskDelay(DEBOUNCE_TICK);
+        bool now = read_pressed_active_low(pin);
+        if (now == last) {
+            stable += DEBOUNCE_TICK;
+            if (stable >= PRESS_STABLE) {
+                if (want_pressed ? now : !now) return;
+            }
+        } else {
+            last = now;
+            stable = 0;
+        }
+    }
+}
+
+// Blocks until full press→release. Holding the button blocks here by design.
+static void wait_press_then_release(uint pin) {
+    wait_until_stable(pin, /*want_pressed=*/true);   // wait for stable press
+    wait_until_stable(pin, /*want_pressed=*/false);  // wait for stable release
+}
+
+// ============================= Tasks 1–3: Button tasks ===================================
+struct ButtonTaskParams {
+    uint pin;
+    EventBits_t bit;
+    uint32_t task_num; // 1..3
+};
+
+static void ButtonTask(void *arg) {
+    ButtonTaskParams p = *static_cast<ButtonTaskParams*>(arg);
+
+    gpio_init(p.pin);
+    gpio_set_dir(p.pin, false);  // input
+    gpio_pull_up(p.pin);         // active-LOW
+
+    uint32_t count = 0;
+    debug("Task %u: ready on GPIO %u\n", p.task_num, p.pin, 0);
+
+    for (;;) {
+        wait_press_then_release(p.pin);  // press+release; holding blocks
+        ++count;
+
+        // Notify watchdog and log the event
+        xEventGroupSetBits(g_evt, p.bit);
+        debug("Button task %u: pressed/released on GPIO %u. Count=%u\n",
+              p.task_num, p.pin, count);
+    }
+}
+
+// ============================= Task 4: Watchdog ===========================================
+static void WatchdogTask(void * /*unused*/) {
+    TickType_t last_ok = xTaskGetTickCount();
+
+    for (;;) {
+        EventBits_t bits = xEventGroupWaitBits(
+            g_evt,
+            ALL_BITS,
+            /*clearOnExit*/ pdTRUE,
+            /*waitForAll*/  pdTRUE,
+            /*timeout*/     WD_DEADLINE
+        );
+
+        if ((bits & ALL_BITS) == ALL_BITS) {
+            TickType_t now = xTaskGetTickCount();
+            TickType_t elapsed = now - last_ok;
+            last_ok = now;
+            debug("OK. Elapsed ticks since last OK: %lu\n",
+                  (unsigned long)elapsed, 0, 0);
+        } else {
+            // Timed out. Collect which tasks missed.
+            EventBits_t current = xEventGroupGetBits(g_evt);
+            EventBits_t seen = (bits | current) & ALL_BITS;
+
+            uint32_t m1 = (seen & BIT_T1) ? 0u : 1u;
+            uint32_t m2 = (seen & BIT_T2) ? 0u : 2u;
+            uint32_t m3 = (seen & BIT_T3) ? 0u : 3u;
+
+            debug("Fail. Missed tasks (non-zero are missing): %u %u %u\n", m1, m2, m3);
+
+            // Requirement: suspend watchdog after failure
+            vTaskSuspend(nullptr);
+        }
+    }
+}
+
+// ================================== main() ================================================
+int main() {
+    // Initialize stdio backend (USB or UART) as configured in CMake.
+    // This doesn't print anything; only the debug task actually writes to stdout.
+    stdio_init_all();
+
+    // Create the event group
+    g_evt = xEventGroupCreate();
+    configASSERT(g_evt != nullptr);
+
+    // Start the debug print task (Task 5) — priority idle+1
+    // NOTE: debug_init() creates the queue + the debug task.
+    configASSERT(debug_init(/*queue_len=*/32, /*task_stack_words=*/512));
+
+    // Create button tasks (1–3) at higher priority than the debug task
+    static ButtonTaskParams P1{BTN1_PIN, BIT_T1, 1};
+    static ButtonTaskParams P2{BTN2_PIN, BIT_T2, 2};
+    static ButtonTaskParams P3{BTN3_PIN, BIT_T3, 3};
+
+    BaseType_t ok;
+    ok = xTaskCreate(ButtonTask, "btn1", 512, &P1, PRIO_BUTTON, nullptr);
+    configASSERT(ok == pdPASS);
+    ok = xTaskCreate(ButtonTask, "btn2", 512, &P2, PRIO_BUTTON, nullptr);
+    configASSERT(ok == pdPASS);
+    ok = xTaskCreate(ButtonTask, "btn3", 512, &P3, PRIO_BUTTON, nullptr);
+    configASSERT(ok == pdPASS);
+
+    // Create watchdog task (Task 4) at even higher priority
+    ok = xTaskCreate(WatchdogTask, "watchdog", 512, nullptr, PRIO_WATCHDOG, nullptr);
+    configASSERT(ok == pdPASS);
+
+    // 5 tasks total:
+    //   1–3 = button tasks, 4 = watchdog, 5 = debug print (created by debug_init)
+    vTaskStartScheduler();
+
+    // Should never get here
+    while (true) { tight_loop_contents(); }
+    return 0;
+}
